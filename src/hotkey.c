@@ -1,98 +1,87 @@
+/*
+ * Hotkey Language Switcher
+ * Remaps CapsLock -> Ctrl+Shift (Windows language switch) with near-zero latency.
+ *
+ * Build:
+ *   gcc hotkey.c -o HotkeyLanguageSwitcher.exe -mwindows -O2
+ *
+ * Architecture:
+ *   WH_KEYBOARD_LL hook returns in <1us (just posts a message).
+ *   The message loop does the actual SendInput call asynchronously.
+ *   This prevents Windows from timing out and removing the hook.
+ */
 #include <windows.h>
-#include <stdio.h>
 
-#define KEY_FROM VK_CAPITAL // key Caps lock (switch lang.)
+#define WM_DO_SWITCH (WM_USER + 1)
 
-// ===== Command Pattern =====
-typedef struct {
-    void (*execute)();
-} KeyCommand;
+static HHOOK g_hook = NULL;
+static DWORD g_tid  = 0;
 
-void switchLanguage() {
-    keybd_event(VK_CONTROL, 0, 0, 0);          // Ctrl down
-    keybd_event(VK_SHIFT, 0, 0, 0);            // Shift down
-    keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);  // Shift up
-    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0); // Ctrl up
+static void switchLanguage(void) {
+    INPUT in[4] = {0};
+
+    in[0].type   = INPUT_KEYBOARD;
+    in[0].ki.wVk = VK_CONTROL;
+
+    in[1].type   = INPUT_KEYBOARD;
+    in[1].ki.wVk = VK_SHIFT;
+
+    in[2].type         = INPUT_KEYBOARD;
+    in[2].ki.wVk       = VK_SHIFT;
+    in[2].ki.dwFlags   = KEYEVENTF_KEYUP;
+
+    in[3].type         = INPUT_KEYBOARD;
+    in[3].ki.wVk       = VK_CONTROL;
+    in[3].ki.dwFlags   = KEYEVENTF_KEYUP;
+
+    SendInput(4, in, sizeof(INPUT));
 }
 
-KeyCommand createCapLockCommand() {
-    KeyCommand cmd;
-    cmd.execute = switchLanguage;
-    return cmd;
-}
-
-// ===== Strategy Pattern =====
-typedef struct {
-    BOOL (*shouldRemap)(DWORD vkCode);
-    KeyCommand* (*getCommand)(DWORD vkCode);
-} KeyRemapper;
-
-BOOL isRemapTarget(DWORD vkCode) {
-    return vkCode == KEY_FROM;
-}
-
-KeyCommand* getRemapCommand(DWORD vkCode) {
-    static KeyCommand capsCmd = { .execute = switchLanguage };
-    static KeyCommand noop    = { .execute = NULL };
-
-    if (vkCode == KEY_FROM) {
-        return &capsCmd;
-    }
-
-    return &noop;
-}
-
-KeyRemapper createDefaultRemapper() {
-    KeyRemapper r;
-    r.shouldRemap = isRemapTarget;
-    r.getCommand = getRemapCommand;
-    return r;
-}
-
-// ===== Hook System =====
-
-HHOOK hHook;
-KeyRemapper remapper;
-
-LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
-        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *) lParam;
-        if (remapper.shouldRemap(p -> vkCode)) {
-            if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
-                KeyCommand* cmd = remapper.getCommand(p -> vkCode);
-                if (cmd -> execute != NULL) {
-                    cmd->execute();
-                }
+        const KBDLLHOOKSTRUCT *p = (const KBDLLHOOKSTRUCT *)lParam;
+
+        if (p->vkCode == VK_CAPITAL && !(p->flags & LLKHF_INJECTED)) {
+            if (wParam == WM_KEYDOWN) {
+                PostThreadMessage(g_tid, WM_DO_SWITCH, 0, 0);
             }
-            return 1;
+            return 1; /* suppress CapsLock entirely */
         }
     }
-    return CallNextHookEx(hHook, nCode, wParam, lParam);
+    return CallNextHookEx(g_hook, nCode, wParam, lParam);
 }
 
-int main() {
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow) {
+    (void)hInst; (void)hPrev; (void)lpCmd; (void)nShow;
 
-    HANDLE hMutex = CreateMutex(NULL, TRUE, "LangSwitcherSingleton");
+    /* prevent multiple instances */
+    HANDLE hMutex = CreateMutexA(NULL, TRUE, "HotkeyLangSwitcher_v2");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        return 0; 
+        CloseHandle(hMutex);
+        return 0;
     }
 
-    switchLanguage();
-    
-    MSG msg;
-    remapper = createDefaultRemapper();
-    
-    hHook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardProc, NULL, 0);
-    if (!hHook) {
-        // Error hHook
+    /* above-normal priority reduces input latency noticeably */
+    SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+
+    g_tid  = GetCurrentThreadId();
+    g_hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardProc, NULL, 0);
+    if (!g_hook) {
+        CloseHandle(hMutex);
         return 1;
     }
 
-    while (GetMessage(&msg, NULL, 0,0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        if (msg.message == WM_DO_SWITCH) {
+            switchLanguage();
+        } else {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
     }
 
-    UnhookWindowsHookEx(hHook);
+    UnhookWindowsHookEx(g_hook);
+    CloseHandle(hMutex);
     return 0;
 }

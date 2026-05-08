@@ -1,10 +1,15 @@
 @echo off
+setlocal
+
 set "APP_NAME=HotkeyLanguageSwitcher"
-set "APP_PATH=C:\Tools\LanguageSwitcher (32bit)"
+set "EXE_NAME=HotkeyLanguageSwitcher.exe"
+set "APP_PATH=%~dp0%EXE_NAME%"
 
 if not exist "%APP_PATH%" (
     echo [ERROR] File not found: %APP_PATH%
-    timeout /t 5>nul
+    echo        Please place %EXE_NAME% in the same folder as this script.
+    timeout /t 5 >nul
+    exit /b 1
 )
 
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" ^
@@ -14,9 +19,10 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" ^
     /f >nul 2>&1
 
 if %errorlevel%==0 (
-    echo [OK] %APP_NAME% added to startup.
+    echo [OK] Added to startup: %APP_PATH%
+    echo [*]  The program will now start automatically on login.
 ) else (
-    echo [ERROR] Failed to add %APP_NAME% to startup.
+    echo [ERROR] Failed to add to startup.
 )
 
-timeout /t 5 >nul
+timeout /t 3 >nul
