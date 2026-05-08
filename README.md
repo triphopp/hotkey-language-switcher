@@ -52,17 +52,20 @@ Windows Language Switch
 
 ## วิธีติดตั้ง (ผู้ใช้ทั่วไป)
 
-### วิธีที่ 1 — ติดตั้งอัตโนมัติ (แนะนำ)
+### วิธีที่ 1 — Install / Upgrade (แนะนำ)
 
 1. เปิดโฟลเดอร์ `installer/`
-2. รัน **`startup.bat`** (คลิกขวา → Run as administrator ถ้าจำเป็น)
-3. โปรแกรมจะถูก copy ไปยัง Startup folder และเริ่มทำงานทันที
+2. รัน **`install.bat`**
+3. เสร็จ — ตัวสคริปต์จะ:
+   - ถ้ามีเวอร์ชันเก่าอยู่แล้ว → **อัปเกรดในที่เดิม** โดยอัตโนมัติ
+   - ถ้ายังไม่เคยติดตั้ง → ติดตั้งลง Startup folder (เปิดเครื่องครั้งถัดไปจะทำงานอัตโนมัติ)
 
 ```
 installer/
 ├── HotkeyLanguageSwitcher.exe   ← ตัวโปรแกรม
-├── startup.bat                  ← ติดตั้งเข้า Startup folder
-├── config.bat                   ← ทางเลือก: ใช้ Registry Run key แทน
+├── install.bat                  ← install หรือ upgrade ในคลิกเดียว
+├── startup.bat                  ← ติดตั้งเข้า Startup folder (manual)
+├── config.bat                   ← ใช้ Registry Run key แทน (manual)
 └── reset.bat                    ← ถอนการติดตั้ง
 ```
 
