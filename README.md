@@ -1,237 +1,199 @@
 # Hotkey Language Switcher
 
-โปรแกรม remap ปุ่ม **CapsLock** ให้สลับภาษา (Ctrl+Shift) บน Windows  
-เบา, เร็ว, ไม่มี delay — ทำงานอัตโนมัติทุกครั้งหลังเปิดเครื่อง
+โปรแกรม Windows ขนาดเล็กสำหรับ remap ปุ่ม `CapsLock` ให้เป็นปุ่มสลับภาษา input ด้วย `Ctrl+Shift`
 
----
+ออกแบบให้ทำงานเงียบ ๆ ตอนเปิดเครื่อง กดแล้วตอบสนองเร็ว และป้องกันปัญหา CapsLock เปิดเอง, modifier ค้าง, auto-repeat, และ startup loop ที่อาจเกิดจาก keyboard driver หรือ IME tool อื่น ๆ
 
-## สิ่งที่โปรแกรมทำ
+## ใช้งานอย่างไร
 
-| ปุ่มที่กด | ผลลัพธ์ |
-|-----------|---------|
-| `CapsLock` | สลับภาษา input (Ctrl+Shift) |
-| ปุ่มอื่นทุกปุ่ม | ทำงานปกติ ไม่กระทบ |
+| ปุ่ม | ผลลัพธ์ |
+|------|---------|
+| `CapsLock` | สลับภาษา input |
+| ปุ่มอื่น | ทำงานปกติ |
 
-> CapsLock ถูก suppress ทั้งหมด — ไม่มี CAPS ON/OFF อีกต่อไป
+หลังติดตั้งแล้วโปรแกรมจะทำงานอยู่เบื้องหลัง ไม่มีหน้าต่าง และจะเริ่มเองทุกครั้งหลัง login
 
----
+หมายเหตุ: `CapsLock` จะไม่ใช้เปิด/ปิดตัวพิมพ์ใหญ่อีกต่อไป โปรแกรมจะ suppress CapsLock จริงทั้งหมด
 
-## สถาปัตยกรรม (Architecture)
+## ติดตั้งหรืออัปเกรด
 
-```
-CapsLock pressed
-      │
-      ▼
-WH_KEYBOARD_LL hook  ← intercepts at kernel level, works in ALL apps
-      │  returns in <1µs (PostThreadMessage only)
-      ▼
-Message Loop (main thread)
-      │
-      ▼
-SendInput(Ctrl↓, Shift↓, Shift↑, Ctrl↑)  ← atomic, modern API
-      │
-      ▼
-Windows Language Switch
-```
-
-**ทำไมถึงเร็วและเสถียร:**
-- Hook callback ทำแค่ `PostThreadMessage` แล้วคืนค่าทันที — ไม่มี blocking
-- Windows จะ unhook อัตโนมัติถ้า hook ช้าเกิน ~300ms → การออกแบบนี้ป้องกันปัญหาดังกล่าว
-- `SendInput` เป็น API สมัยใหม่ที่ส่ง keystrokes แบบ atomic (4 keys ในคำสั่งเดียว)
-- Process priority = `ABOVE_NORMAL` ลด input latency อย่างเห็นได้ชัด
-
----
-
-## ความต้องการของระบบ
-
-- Windows 10 / 11 (64-bit หรือ 32-bit)
-- ภาษา input ที่ต้องการต้องเพิ่มไว้ใน Windows Settings ก่อน
-  - Settings → Time & Language → Language & Region → Add a language
-
----
-
-## วิธีติดตั้ง (ผู้ใช้ทั่วไป)
-
-### วิธีที่ 1 — Install / Upgrade (แนะนำ)
-
-1. เปิดโฟลเดอร์ `installer/`
-2. รัน **`install.bat`**
-3. เสร็จ — ตัวสคริปต์จะ:
-   - ถ้ามีเวอร์ชันเก่าอยู่แล้ว → **อัปเกรดในที่เดิม** โดยอัตโนมัติ
-   - ถ้ายังไม่เคยติดตั้ง → ติดตั้งลง Startup folder (เปิดเครื่องครั้งถัดไปจะทำงานอัตโนมัติ)
-
-```
-installer/
-├── HotkeyLanguageSwitcher.exe   ← ตัวโปรแกรม
-├── install.bat                  ← install หรือ upgrade ในคลิกเดียว
-├── startup.bat                  ← ติดตั้งเข้า Startup folder (manual)
-├── config.bat                   ← ใช้ Registry Run key แทน (manual)
-└── reset.bat                    ← ถอนการติดตั้ง
-```
-
-### วิธีที่ 2 — ใช้ Registry Run Key
-
-1. วาง `HotkeyLanguageSwitcher.exe` ไว้ที่ path ที่ต้องการ (เช่น `C:\Tools\`)
-2. รัน `installer/config.bat`
-3. โปรแกรมจะเพิ่มตัวเองใน Registry เพื่อ auto-start
-
-### วิธีที่ 3 — ติดตั้งด้วยตนเอง
-
-เปิด PowerShell แล้วรัน:
+วิธีแนะนำ:
 
 ```powershell
-$exePath = "C:\Path\To\HotkeyLanguageSwitcher.exe"
-$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-Set-ItemProperty -Path $regPath -Name "HotkeyLanguageSwitcher" -Value "`"$exePath`""
+cd D:\Agents\Claude\hotkey-language-switcher
+.\installer\install.bat
 ```
 
----
+สิ่งที่ `install.bat` ทำ:
 
-## วิธีถอนการติดตั้ง
+- ปิด `HotkeyLanguageSwitcher.exe` ตัวเก่าถ้ามี
+- อัปเกรด binary ในตำแหน่งติดตั้งเดิม
+- ถ้ายังไม่เคยติดตั้ง จะ copy ไปที่ Startup folder ของ user ปัจจุบัน
+- ลบ startup entry ซ้ำอีกทาง เพื่อไม่ให้มีทั้ง Registry Run และ Startup folder พร้อมกัน
+- เปิดโปรแกรมทันทีหลังติดตั้ง
 
-```
-รัน installer/reset.bat
-```
-
-หรือด้วยตนเอง:
+หลังติดตั้ง ให้ตรวจสถานะจริง:
 
 ```powershell
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "HotkeyLanguageSwitcher"
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose.ps1
 ```
 
-แล้วลบไฟล์ `.exe` ออก
+ถ้าขึ้นแบบนี้ถือว่าพร้อมใช้:
 
----
-
-## วิธี Build จาก Source Code
-
-ต้องการ: [MinGW-w64](https://www.mingw-w64.org/) หรือ MSYS2
-
-```bash
-gcc src/hotkey.c -o build/HotkeyLanguageSwitcher.exe -mwindows -O2
+```text
+[PASS] runtime diagnostics
 ```
 
-| Flag | ความหมาย |
-|------|----------|
-| `-mwindows` | ไม่เปิด console window, ใช้ `WinMain` entry point |
-| `-O2` | compiler optimization ระดับ 2 (เร็วขึ้น) |
+## ถอนการติดตั้ง
 
----
+```powershell
+cd D:\Agents\Claude\hotkey-language-switcher
+.\installer\reset.bat
+```
 
-## การแก้ปัญหา (Troubleshooting)
+`reset.bat` จะปิด process, ลบ Registry Run key และลบ Startup folder copy ให้ครบ
 
-### โปรแกรมไม่ทำงานกับบางแอป
-โปรแกรมที่รันด้วยสิทธิ์ Administrator (elevated) เช่น Task Manager, บางเกม  
-→ รัน `HotkeyLanguageSwitcher.exe` ด้วย **Run as administrator** ด้วยเช่นกัน
+## สาเหตุปัญหาที่เคยพบ
 
-วิธีทำให้ auto-run as administrator:
-1. คลิกขวาที่ `.exe` → Properties → Compatibility
-2. เช็ค "Run this program as an administrator"
+อาการเดิมคือเปิด Windows แล้วบางครั้งใช้งานได้ แต่บางครั้งเหมือน `CapsLock` ทำงานเอง ทำให้สลับภาษาไม่ได้หรือเกิด loop
 
-### ภาษาไม่สลับ
-- ตรวจสอบว่ามีภาษามากกว่า 1 ภาษาใน Windows Settings
-- Settings → Time & Language → Language & Region
+สาเหตุที่พบจากโค้ดเดิม:
 
-### โปรแกรมรันอยู่แล้วแต่ไม่ตอบสนอง
-โปรแกรมป้องกัน instance ซ้ำด้วย Mutex (`HotkeyLangSwitcher_v2`)  
-เปิด Task Manager → ค้นหา `HotkeyLanguageSwitcher` → End task แล้วรันใหม่
+- hook เดิมปล่อย `CapsLock` ที่มี flag `LLKHF_INJECTED` ผ่านระบบทั้งหมด
+- event แบบ injected อาจมาจาก Windows, IME, keyboard vendor software หรือ logic normalize CapsLock state
+- เมื่อ event เหล่านี้ทะลุไปถึง Windows จึงมีโอกาสเปลี่ยน CapsLock toggle state จริง
+- installer/reset เดิมมีโอกาสเหลือ startup entry คนละที่ ทำให้หลัง login รัน binary เก่าหรือคนละสำเนาได้
 
-### ถ้าใช้ startup.bat แล้วหน้าต่าง flash ขึ้นมา
-ปกติสำหรับครั้งแรก เพราะ `.bat` รันค้างไว้ 3 วินาที  
-ครั้งถัดไปที่เปิดเครื่อง โปรแกรมจะรันตรงๆ โดยไม่มี window
+สิ่งที่แก้แล้ว:
 
----
+- block third-party injected CapsLock ทั้งหมด
+- อนุญาตเฉพาะ synthetic CapsLock ที่โปรแกรม tag เองด้วย marker `HKLS`
+- เพิ่ม debounce เพื่อกัน key bounce และ rapid loop
+- เพิ่ม stuck-key timeout เพื่อ recover ถ้า Windows ไม่ส่ง keyup
+- normalize CapsLock ให้ OFF ตอนเริ่มโปรแกรมและหลังสลับภาษา
+- installer/reset cleanup duplicate startup paths
+
+## ระบบทดสอบ
+
+รัน production test gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+```
+
+test gate ตรวจสิ่งเหล่านี้:
+
+- build โปรแกรมด้วย `-Wall -Wextra -Werror`
+- build และรัน unit tests ของ hotkey core
+- ตรวจว่า CapsLock จริง trigger switch แค่หนึ่งครั้งต่อ physical press
+- ตรวจว่า CapsLock auto-repeat ตอนกดค้างไม่สลับภาษารัว
+- ตรวจ debounce สำหรับการกดซ้ำเร็วผิดปกติ
+- ตรวจ recovery เมื่อ keyup หายหรือ key state ค้าง
+- ตรวจว่า third-party injected CapsLock ถูก block
+- ตรวจว่า own tagged normalize event เท่านั้นที่ pass-through
+- ตรวจว่า Ctrl/Shift injection ไม่ทำ modifier ค้าง
+- ตรวจ DWORD tick wrap-around
+- sync binary จาก `build/` ไป `installer/`
+- ตรวจ SHA256 ของ binary ทั้งสองตำแหน่งว่าตรงกัน
+- ตรวจว่า installer/reset มี logic cleanup startup duplicate
+- ตรวจ whitespace ด้วย `git diff --check`
+
+รายละเอียด coverage และ release checklist อยู่ใน [TESTING.md](TESTING.md)
+
+## โครงสร้างโปรเจกต์
+
+```text
+.
+├── src/
+│   ├── hotkey.c              # Windows hook wrapper และ runtime entry point
+│   └── hotkey_core.h         # deterministic core logic ที่ unit test ได้
+├── tests/
+│   └── test_hotkey_core.c    # unit tests สำหรับ CapsLock state machine
+├── scripts/
+│   ├── test.ps1              # production test gate
+│   └── diagnose.ps1          # runtime diagnostics หลัง install/login
+├── build/
+│   └── HotkeyLanguageSwitcher.exe
+└── installer/
+    ├── HotkeyLanguageSwitcher.exe
+    ├── install.bat
+    ├── reset.bat
+    ├── config.bat
+    └── startup.bat
+```
+
+## Build จาก source
+
+ต้องมี MinGW-w64 หรือ MSYS2 ที่เรียก `gcc` ได้จาก PATH
+
+```powershell
+gcc src\hotkey.c -o build\HotkeyLanguageSwitcher.exe -mwindows -O2 -Wall -Wextra -Werror
+```
+
+สำหรับ release ให้ใช้:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+```
+
+เพราะคำสั่งนี้จะ build, test, sync installer binary และตรวจ hash ให้ครบ
 
 ## รายละเอียดทางเทคนิค
 
-### วิธีที่ hook ทำงาน
+โปรแกรมใช้ `WH_KEYBOARD_LL` เพื่อ intercept CapsLock ก่อนถึงแอปอื่น แล้วส่งงานจริงไปที่ message loop ด้วย `PostThreadMessage` เพื่อให้ hook callback คืนค่าทันที
 
-`WH_KEYBOARD_LL` เป็น global keyboard hook ที่ทำงานที่ระดับ kernel ก่อนที่ input จะถึงแอปใดๆ
+flow หลัก:
 
-```c
-static LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION) {
-        const KBDLLHOOKSTRUCT *p = (const KBDLLHOOKSTRUCT *)lParam;
-
-        if (p->vkCode == VK_CAPITAL && !(p->flags & LLKHF_INJECTED)) {
-            if (wParam == WM_KEYDOWN) {
-                PostThreadMessage(g_tid, WM_DO_SWITCH, 0, 0);
-            }
-            return 1; /* suppress CapsLock */
-        }
-    }
-    return CallNextHookEx(g_hook, nCode, wParam, lParam);
-}
+```text
+Physical CapsLock
+    -> WH_KEYBOARD_LL
+    -> hotkey core decides pass/suppress/switch
+    -> PostThreadMessage(WM_DO_SWITCH)
+    -> SendInput(Ctrl down, Shift down, Shift up, Ctrl up)
+    -> Windows switches input language
 ```
 
-- `LLKHF_INJECTED` check → ไม่ react กับ synthetic keystrokes (ป้องกัน loop)
-- `return 1` → block CapsLock ไม่ให้ไปถึงแอปอื่น
-- `PostThreadMessage` → async dispatch (hook ช้าอย่างมากได้)
+กฎของ CapsLock event:
 
-### วิธีที่ SendInput ทำงาน
+| Event | ผลลัพธ์ |
+|-------|---------|
+| Physical CapsLock down | suppress + request language switch |
+| Physical CapsLock repeat | suppress only |
+| Physical CapsLock up | suppress + reset state |
+| Third-party injected CapsLock | suppress only |
+| Own tagged injected CapsLock | pass-through เพื่อ normalize OFF |
+| Non-CapsLock key | pass-through |
 
-```c
-static void switchLanguage(void) {
-    INPUT in[4] = {0};
-    in[0].ki.wVk = VK_CONTROL;           // Ctrl down
-    in[1].ki.wVk = VK_SHIFT;             // Shift down
-    in[2].ki = (KEYBDINPUT){ VK_SHIFT,  0, KEYEVENTF_KEYUP, 0, 0 }; // Shift up
-    in[3].ki = (KEYBDINPUT){ VK_CONTROL, 0, KEYEVENTF_KEYUP, 0, 0 }; // Ctrl up
-    SendInput(4, in, sizeof(INPUT));      // atomic: all 4 sent as one block
-}
+## สิทธิ์และข้อจำกัด
+
+- โปรแกรมไม่บันทึก keystrokes
+- ใช้ Windows API มาตรฐานเท่านั้น
+- ทำงานใน user space ไม่ใช่ kernel driver
+- ถ้าต้องใช้กับแอปที่รันแบบ Administrator โปรแกรมนี้ต้องรันแบบ Administrator ด้วย
+- Global keyboard hooks ไม่ควรทดสอบด้วยการยิง key จริงบนเครื่องใช้งานหลัก จึงมี unit test core logic และ runtime diagnostics แยกกัน
+
+## Troubleshooting
+
+ถ้ากดแล้วไม่สลับภาษา:
+
+- ตรวจว่ามี input language มากกว่า 1 ภาษาใน Windows Settings
+- รัน `scripts\diagnose.ps1`
+- เปิด Task Manager แล้วเช็คว่ามี `HotkeyLanguageSwitcher.exe` แค่ตัวเดียว
+
+ถ้า diagnostics แจ้งว่า startup binary hash ไม่ตรง:
+
+```powershell
+cd D:\Agents\Claude\hotkey-language-switcher
+.\installer\install.bat
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose.ps1
 ```
 
-`SendInput` ส่ง key events ทั้งหมดในคำสั่งเดียว — ไม่มีทางที่ keystroke อื่นจะแทรกกลางได้
+ถ้าต้องการ reset สะอาด:
 
-### Registry Hives ที่เกี่ยวข้อง
-
-| Key | ชื่อเต็ม | ใช้ทำอะไร |
-|-----|----------|-----------|
-| `HKCU` | HKEY_CURRENT_USER | Auto-start เฉพาะ user ปัจจุบัน |
-| `HKLM` | HKEY_LOCAL_MACHINE | Auto-start สำหรับทุก user (ต้องการ Admin) |
-
-โปรแกรมนี้ใช้ `HKCU` — ไม่ต้องการ admin สำหรับการติดตั้ง
-
----
-
-## การเพิ่มภาษา / เปลี่ยน Hotkey
-
-ปัจจุบัน CapsLock ถูก hardcode ใน source code:
-
-```c
-#define VK_CAPITAL  0x14   // CapsLock — ค่านี้กำหนดไว้ใน <windows.h>
+```powershell
+.\installer\reset.bat
+.\installer\install.bat
 ```
-
-ถ้าต้องการเปลี่ยน hotkey ให้แก้บรรทัด:
-
-```c
-if (p->vkCode == VK_CAPITAL && ...)
-```
-
-เปลี่ยน `VK_CAPITAL` เป็น Virtual Key Code อื่น เช่น:
-
-| ปุ่ม | Virtual Key Code |
-|------|-----------------|
-| CapsLock | `VK_CAPITAL` (0x14) |
-| Scroll Lock | `VK_SCROLL` (0x91) |
-| Pause/Break | `VK_PAUSE` (0x13) |
-| F13-F24 | `VK_F13`–`VK_F24` |
-
-แล้ว build ใหม่:
-```bash
-gcc src/hotkey.c -o build/HotkeyLanguageSwitcher.exe -mwindows -O2
-```
-
----
-
-## สิทธิ์และความปลอดภัย
-
-- โปรแกรมนี้ **ไม่บันทึก** keystrokes ใดๆ
-- ทำงานใน user space เท่านั้น (ไม่ใช่ kernel driver)
-- Source code เปิดเผย — ตรวจสอบได้ใน `src/hotkey.c`
-- ใช้เฉพาะ Windows API มาตรฐาน: `SetWindowsHookEx`, `SendInput`, `PostThreadMessage`
-
----
 
 ## License
 

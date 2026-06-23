@@ -24,7 +24,9 @@ taskkill /F /IM "%EXE%" >nul 2>&1
 :: --- Case 1: already in Startup folder (via startup.bat) ---
 if exist "%STARTUP%" (
     copy /Y "%SRC%" "%STARTUP%" >nul
+    reg delete "%REG%" /v "%NAME%" /f >nul 2>&1
     echo [OK] Upgraded existing installation in Startup folder.
+    echo [OK] Removed duplicate Registry startup entry if it existed.
     set "DEST=%STARTUP%"
     goto :launch
 )
@@ -40,12 +42,15 @@ if defined REGVAL (
     set "REGVAL=!REGVAL:"=!"
     for %%F in ("!REGVAL!") do set "DEST=%%~dpF%EXE%"
     copy /Y "%SRC%" "!DEST!" >nul
+    if exist "%STARTUP%" del /F /Q "%STARTUP%" >nul 2>&1
     echo [OK] Upgraded existing installation at: !DEST!
+    echo [OK] Removed duplicate Startup folder copy if it existed.
     goto :launch
 )
 
 :: --- Case 3: fresh install ---
 copy /Y "%SRC%" "%STARTUP%" >nul
+reg delete "%REG%" /v "%NAME%" /f >nul 2>&1
 echo [OK] Installed to Startup folder.
 echo      Will auto-start on next login.
 set "DEST=%STARTUP%"

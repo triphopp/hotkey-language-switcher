@@ -13,15 +13,17 @@
  * Bug fixes:
  *   - Check GetAsyncKeyState before injecting modifiers (prevents sticky Tab/Shift)
  *   - Track key-down state to block WM_KEYDOWN auto-repeat (prevents rapid switching)
- *   - Normalize CapsLock LED state after suppression (fixes LED stuck on some hardware)
+ *   - Block unknown injected CapsLock events (prevents startup/input-tool feedback loops)
+ *   - Normalize CapsLock toggle state only with our own tagged synthetic event
  */
 #include <windows.h>
+#include "hotkey_core.h"
 
 #define WM_DO_SWITCH (WM_USER + 1)
 
-static HHOOK g_hook    = NULL;
-static DWORD g_tid     = 0;
-static BOOL  g_capsDown = FALSE; /* tracks physical CapsLock state to block auto-repeat */
+static HHOOK g_hook = NULL;
+static DWORD g_tid = 0;
+static HklsHookState g_hookState;
 
 /* -----------------------------------------------------------------------
  * switchLanguage
@@ -38,33 +40,27 @@ static void switchLanguage(void) {
     BOOL shiftHeld = (GetAsyncKeyState(VK_SHIFT)   & 0x8000) != 0;
 
     INPUT in[4] = {0};
-    int   n     = 0;
-
-    /* press only what isn't already held */
-    if (!ctrlHeld)  { in[n].type = INPUT_KEYBOARD; in[n].ki.wVk = VK_CONTROL; n++; }
-    if (!shiftHeld) { in[n].type = INPUT_KEYBOARD; in[n].ki.wVk = VK_SHIFT;   n++; }
-
-    /* release only what we ourselves pressed */
-    if (!shiftHeld) { in[n].type = INPUT_KEYBOARD; in[n].ki.wVk = VK_SHIFT;   in[n].ki.dwFlags = KEYEVENTF_KEYUP; n++; }
-    if (!ctrlHeld)  { in[n].type = INPUT_KEYBOARD; in[n].ki.wVk = VK_CONTROL; in[n].ki.dwFlags = KEYEVENTF_KEYUP; n++; }
+    int n = hklsBuildSwitchInputs(ctrlHeld, shiftHeld, in);
 
     if (n > 0) SendInput(n, in, sizeof(INPUT));
 }
 
 /* -----------------------------------------------------------------------
- * fixCapsLockLed
+ * ensureCapsLockOff
  *
- * On some hardware/drivers, CapsLock LED still toggles even when the hook
- * returns 1 (suppressed).  Inject a synthetic CapsLock press (flagged as
- * LLKHF_INJECTED so the hook ignores it) to flip the LED back to OFF.
+ * If Windows starts with CapsLock already toggled on, suppressing the
+ * physical key would otherwise leave the user unable to turn it off.
+ * This sends one tagged synthetic CapsLock press only when the toggle bit
+ * is on; the hook allows only this tagged event through and blocks all
+ * other injected CapsLock events.
  * ----------------------------------------------------------------------- */
-static void fixCapsLockLed(void) {
-    if (!(GetKeyState(VK_CAPITAL) & 0x0001)) return; /* LED already OFF, nothing to do */
+static void ensureCapsLockOff(void) {
+    if (!hklsShouldNormalizeCapsLock(GetKeyState(VK_CAPITAL))) return; /* already OFF */
 
     INPUT caps[2] = {0};
-    caps[0].type = INPUT_KEYBOARD; caps[0].ki.wVk = VK_CAPITAL;
-    caps[1].type = INPUT_KEYBOARD; caps[1].ki.wVk = VK_CAPITAL; caps[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput(2, caps, sizeof(INPUT));
+    int n = hklsBuildCapsNormalizeInputs(caps);
+
+    SendInput(n, caps, sizeof(INPUT));
 }
 
 /* -----------------------------------------------------------------------
@@ -80,14 +76,15 @@ static LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         const KBDLLHOOKSTRUCT *p = (const KBDLLHOOKSTRUCT *)lParam;
 
-        if (p->vkCode == VK_CAPITAL && !(p->flags & LLKHF_INJECTED)) {
-            if (wParam == WM_KEYDOWN && !g_capsDown) {
-                g_capsDown = TRUE;
+        switch (hklsHandleKeyboardEvent(&g_hookState, p->vkCode, wParam, p->flags, p->dwExtraInfo, GetTickCount())) {
+            case HKLS_ACTION_SUPPRESS_AND_SWITCH:
                 PostThreadMessage(g_tid, WM_DO_SWITCH, 0, 0);
-            } else if (wParam == WM_KEYUP) {
-                g_capsDown = FALSE;
-            }
-            return 1; /* suppress CapsLock entirely — never reaches any app */
+                return 1;
+            case HKLS_ACTION_SUPPRESS:
+                return 1;
+            case HKLS_ACTION_PASS:
+            default:
+                break;
         }
     }
     return CallNextHookEx(g_hook, nCode, wParam, lParam);
@@ -109,18 +106,24 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow) {
     /* above-normal priority reduces input latency noticeably */
     SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 
-    g_tid  = GetCurrentThreadId();
+    MSG msg;
+
+    g_tid = GetCurrentThreadId();
+    hklsInitHookState(&g_hookState);
+    PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE); /* ensure PostThreadMessage has a queue */
+
     g_hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardProc, NULL, 0);
     if (!g_hook) {
         CloseHandle(hMutex);
         return 1;
     }
 
-    MSG msg;
+    ensureCapsLockOff();
+
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
         if (msg.message == WM_DO_SWITCH) {
             switchLanguage();
-            fixCapsLockLed();
+            ensureCapsLockOff();
         } else {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
