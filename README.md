@@ -51,6 +51,57 @@ powershell -ExecutionPolicy Bypass -File .\scripts\diagnose.ps1
 [PASS] runtime diagnostics
 ```
 
+### หลังติดตั้งต้องทำอะไรต่อ
+
+ไม่ต้องทำอะไร และไม่ต้อง restart:
+
+- `install.bat` start task ให้ทันที กด CapsLock ใช้ได้เลย
+- login ครั้งต่อไป Task Scheduler จะเปิดโปรแกรมให้เองภายในไม่กี่วินาที
+
+### อัปเกรดหลังแก้โค้ด
+
+แก้ `src/` แล้วต้อง build และติดตั้งใหม่ เพราะ task รัน binary ใน `C:\Program Files\HotkeyLanguageSwitcher\` ไม่ใช่ใน repo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1   # build + test + sync ไป installer\
+.\installer\install.bat                                        # copy ไป Program Files + restart task
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose.ps1
+```
+
+ถ้าลืมขั้นที่สอง `diagnose.ps1` จะแจ้งว่า installed binary hash ไม่ตรง
+
+## ทำไมใช้ Task Scheduler
+
+เวอร์ชันก่อนใช้ Startup folder ซึ่ง Windows จงใจหน่วง และเปิดหลังโปรแกรมใน Registry Run key ทั้งหมด บนเครื่องที่มีโปรแกรม startup เยอะ (Docker, Steam, Discord, OneDrive ฯลฯ) วัดได้ว่าโปรแกรมเริ่มช้ากว่า Explorer ถึง 3 นาที 42 วินาที
+
+```text
+เดิม:  Login → Explorer → [หน่วง] → Run key ทุกตัวแย่งกันโหลด → Startup folder → switcher   (10 วินาที – หลายนาที)
+ใหม่:  Login → Task Scheduler → switcher   (ทำงานคู่กับ Explorer, ~1-3 วินาที)
+```
+
+| | Startup folder (เดิม) | Task Scheduler (ปัจจุบัน) |
+|---|---|---|
+| ใช้ได้หลัง login | 10 วินาที – หลายนาที | ~1-3 วินาที |
+| ต่อคิวหลังโปรแกรมอื่น | ใช่ | ไม่ |
+| ใช้ในแอปที่รันแบบ Administrator | ไม่ได้ | ได้ (highest privileges) |
+| process ล้มแล้ว restart เอง | ไม่ | ได้ |
+| ใช้ที่หน้า login / lock screen | ไม่ได้ | ไม่ได้ |
+| ติดตั้ง | copy ไฟล์ | ต้องกด UAC หนึ่งครั้ง |
+
+### ทางเลือกอื่นที่พิจารณาแล้ว
+
+ถ้าต้องการให้ใช้ได้ตั้งแต่ก่อน login (BIOS, หน้า login, lock screen) ต้องทำที่ระดับ driver หรือ hardware ไม่ใช่โปรแกรม user-space:
+
+| ทางเลือก | ใช้ได้ตั้งแต่ boot | ข้อจำกัด |
+|---|---|---|
+| Registry `Scancode Map` + ตั้ง hotkey สลับภาษาเป็น Grave (`` ` ``) | ได้ | Scancode Map map ได้แค่ 1 ปุ่ม → 1 ปุ่ม ทำ Ctrl+Shift ไม่ได้ จึงต้องใช้ Grave แทน และจะพิมพ์ `` ` `` / `~` ไม่ได้ |
+| Remap ใน firmware คีย์บอร์ด (QMK/VIA) | ได้ | Keychron K2 รุ่นปกติไม่รองรับ ต้องเป็น K2 Pro / Max / HE |
+| ตัวแปลง USB (RP2040 + [hid-remapper](https://github.com/jfedor2/hid-remapper)) | ได้ | ต้องต่อคีย์บอร์ดแบบสาย |
+| ตัวแปลง Bluetooth (Pico W + firmware เขียนเอง) | ได้ | K2 ใช้ Bluetooth Classic ต้องเขียน firmware เอง (BTstack + TinyUSB) |
+| Kernel filter driver เขียนเอง | ได้ | Windows 11 + Secure Boot ต้องให้ Microsoft sign driver; test-signing ลดความปลอดภัยและ anti-cheat ไม่ยอม; bug = BSOD |
+
+สำหรับการใช้งานหลัง login Task Scheduler เป็นจุดที่คุ้มที่สุด: ไม่ต้องซื้อของ, ยังใช้ Ctrl+Shift และพิมพ์ `` ` `` ได้ปกติ, ใช้ได้ทั้งสายและ Bluetooth
+
 ## ถอนการติดตั้ง
 
 ```powershell
