@@ -63,15 +63,28 @@ if ($BuildHash -ne $InstallerHash) {
     throw "Installer executable hash mismatch: build=$BuildHash installer=$InstallerHash"
 }
 
-Write-Host "[TEST] verify startup scripts clean duplicate install paths"
+Write-Host "[TEST] verify scheduled task setup and legacy startup cleanup"
 $InstallScript = Get-Content -Path (Join-Path $Root "installer\install.bat") -Raw
 $ResetScript = Get-Content -Path (Join-Path $Root "installer\reset.bat") -Raw
+$SetupScript = Get-Content -Path (Join-Path $Root "installer\setup.ps1") -Raw
 
-Assert-Contains "install.bat" $InstallScript 'reg delete "%REG%" /v "%NAME%" /f'
-Assert-Contains "install.bat" $InstallScript 'del /F /Q "%STARTUP%"'
-Assert-Contains "reset.bat" $ResetScript 'taskkill /F /IM "%EXE_NAME%"'
-Assert-Contains "reset.bat" $ResetScript 'reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "HotkeyLanguageSwitcher" /f'
-Assert-Contains "reset.bat" $ResetScript 'del /F /Q "%STARTUP_PATH%"'
+Assert-Contains "install.bat" $InstallScript 'setup.ps1"'
+Assert-Contains "reset.bat" $ResetScript 'setup.ps1" -Uninstall'
+Assert-Contains "setup.ps1" $SetupScript 'New-ScheduledTaskTrigger -AtLogOn -User $User'
+Assert-Contains "setup.ps1" $SetupScript '-RunLevel Highest'
+Assert-Contains "setup.ps1" $SetupScript '-AllowStartIfOnBatteries'
+Assert-Contains "setup.ps1" $SetupScript '-DontStopIfGoingOnBatteries'
+Assert-Contains "setup.ps1" $SetupScript '-ExecutionTimeLimit ([TimeSpan]::Zero)'
+Assert-Contains "setup.ps1" $SetupScript 'Join-Path $env:ProgramFiles $AppName'
+Assert-Contains "setup.ps1" $SetupScript 'Remove-ItemProperty -Path $RunKey -Name $AppName'
+Assert-Contains "setup.ps1" $SetupScript 'Remove-Item -Path $StartupPath -Force'
+Assert-Contains "setup.ps1" $SetupScript 'Unregister-ScheduledTask -TaskName $TaskName'
+
+foreach ($Legacy in @("startup.bat", "config.bat")) {
+    if (Test-Path (Join-Path $Root "installer\$Legacy")) {
+        throw "Legacy installer must not ship (creates duplicate startup path): $Legacy"
+    }
+}
 
 if (-not $SkipGitChecks) {
     $Git = Get-Command git -ErrorAction SilentlyContinue

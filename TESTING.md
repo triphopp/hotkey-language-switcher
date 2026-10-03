@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test.ps1
 - build และรัน unit tests ของ hotkey core
 - sync binary จาก `build/` ไป `installer/`
 - verify SHA256 ของ binary ทั้งสองตำแหน่งว่าตรงกัน
-- static check ว่า installer/reset cleanup duplicate startup paths
+- static check ว่า setup.ps1 สร้าง task แบบ at-logon/highest/no time limit/battery-safe, cleanup startup เก่า และไม่มี legacy `startup.bat`/`config.bat`
 - `git diff --check` เพื่อจับ whitespace errors
 
 ## Automated coverage matrix
@@ -48,22 +48,24 @@ powershell -ExecutionPolicy Bypass -File scripts\diagnose.ps1
 
 สคริปต์นี้ตรวจสถานะจริงของ user session:
 
-- มี `HotkeyLanguageSwitcher` process เกิน 1 ตัวหรือไม่
-- มีทั้ง Registry Run และ Startup folder พร้อมกันหรือไม่
-- startup path ชี้ไปยังไฟล์ที่มีอยู่จริงหรือไม่
+- process รันอยู่ และไม่เกิน 1 ตัว
+- scheduled task `HotkeyLanguageSwitcher` มีอยู่, มี logon trigger, run level Highest, ไม่มี time limit, ไม่ถูกบล็อกตอนใช้แบต
+- task ชี้ไปที่ `C:\Program Files\HotkeyLanguageSwitcher\HotkeyLanguageSwitcher.exe`
 - binary ที่ติดตั้งมี hash ตรงกับ `installer\HotkeyLanguageSwitcher.exe` หรือไม่
+- ไม่มี startup แบบเก่า (Registry Run / Startup folder) ค้างอยู่
 
 ## VM/manual production gate
 
 ก่อน release ที่แตะ keyboard hook หรือ startup behavior ให้ทดสอบใน Windows VM หรือเครื่องทดสอบ:
 
 - clean install ด้วย `installer\reset.bat` แล้ว `installer\install.bat`
-- reboot แล้วรัน `scripts\diagnose.ps1`
+- reboot แล้วรัน `scripts\diagnose.ps1` และกด CapsLock ทันทีที่เห็น desktop ต้องสลับได้ภายในไม่กี่วินาที
 - กด CapsLock ครั้งเดียว ต้องสลับภาษา 1 ครั้ง และ CapsLock state ต้องไม่ ON
 - กด CapsLock ค้าง 3 วินาที ต้องไม่สลับภาษารัว
 - กด CapsLock เร็วหลายครั้ง ต้องไม่มี loop หรือ stuck modifier
 - ทดสอบตอน Ctrl หรือ Shift ถูกกดค้าง ต้องไม่เกิด sticky modifier หลังปล่อย
-- เปิดแอปปกติและแอป elevated แล้วยืนยันขอบเขตสิทธิ์ตาม README
+- เปิดแอปปกติและแอป elevated ต้องสลับภาษาได้ทั้งคู่
+- double-click exe ซ้ำขณะ task รันอยู่ ต้องไม่มี process ที่สอง
 - ทดสอบ login ที่ CapsLock เปิด ON อยู่ก่อน ต้องถูก normalize เป็น OFF
 - ถ้ามี keyboard vendor software/IME tool ให้เปิดพร้อม startup แล้ว reboot ซ้ำอย่างน้อย 5 รอบ
 
