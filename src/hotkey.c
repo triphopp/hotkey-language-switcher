@@ -96,10 +96,11 @@ static LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow) {
     (void)hInst; (void)hPrev; (void)lpCmd; (void)nShow;
 
-    /* prevent multiple instances */
+    /* prevent multiple instances; a NULL handle means an elevated instance
+     * (started by the scheduled task) owns the mutex and denied us access */
     HANDLE hMutex = CreateMutexA(NULL, TRUE, "HotkeyLangSwitcher_v2");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        CloseHandle(hMutex);
+    if (!hMutex || GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (hMutex) CloseHandle(hMutex);
         return 0;
     }
 

@@ -11,7 +11,7 @@
 | `CapsLock` | สลับภาษา input |
 | ปุ่มอื่น | ทำงานปกติ |
 
-หลังติดตั้งแล้วโปรแกรมจะทำงานอยู่เบื้องหลัง ไม่มีหน้าต่าง และจะเริ่มเองทุกครั้งหลัง login
+หลังติดตั้งแล้วโปรแกรมจะทำงานอยู่เบื้องหลัง ไม่มีหน้าต่าง และเริ่มเองทันทีหลัง login ผ่าน Task Scheduler (ไม่ต้องรอคิว Startup folder)
 
 หมายเหตุ: `CapsLock` จะไม่ใช้เปิด/ปิดตัวพิมพ์ใหญ่อีกต่อไป โปรแกรมจะ suppress CapsLock จริงทั้งหมด
 
@@ -24,13 +24,20 @@ cd D:\Agents\Claude\hotkey-language-switcher
 .\installer\install.bat
 ```
 
-สิ่งที่ `install.bat` ทำ:
+`install.bat` จะขอสิทธิ์ Administrator (UAC) หนึ่งครั้ง แล้วรัน `installer\setup.ps1` ซึ่ง:
 
 - ปิด `HotkeyLanguageSwitcher.exe` ตัวเก่าถ้ามี
-- อัปเกรด binary ในตำแหน่งติดตั้งเดิม
-- ถ้ายังไม่เคยติดตั้ง จะ copy ไปที่ Startup folder ของ user ปัจจุบัน
-- ลบ startup entry ซ้ำอีกทาง เพื่อไม่ให้มีทั้ง Registry Run และ Startup folder พร้อมกัน
-- เปิดโปรแกรมทันทีหลังติดตั้ง
+- copy binary ไปที่ `C:\Program Files\HotkeyLanguageSwitcher\` (admin-only writable กัน binary ถูกสลับ)
+- ลบ startup แบบเก่า (Registry Run key และ Startup folder) เพื่อไม่ให้รันซ้ำ
+- สร้าง scheduled task `HotkeyLanguageSwitcher`:
+  - trigger: At log on ของ user ปัจจุบัน ไม่มี delay
+  - Run with highest privileges เพื่อให้ใช้ได้ในแอปที่รันแบบ Administrator
+  - ไม่มี time limit (ค่า default ของ Windows จะ kill หลัง 72 ชั่วโมง)
+  - ทำงานตอนใช้แบตเตอรี่
+  - restart เองทุก 1 นาที (สูงสุด 10 ครั้ง) ถ้า process ล้ม
+- start task ทันทีหลังติดตั้ง
+
+รันซ้ำเพื่ออัปเกรดได้เลย
 
 หลังติดตั้ง ให้ตรวจสถานะจริง:
 
@@ -51,7 +58,7 @@ cd D:\Agents\Claude\hotkey-language-switcher
 .\installer\reset.bat
 ```
 
-`reset.bat` จะปิด process, ลบ Registry Run key และลบ Startup folder copy ให้ครบ
+`reset.bat` จะขอสิทธิ์ Administrator แล้วปิด process, ลบ scheduled task, ลบ `C:\Program Files\HotkeyLanguageSwitcher\` และลบ startup แบบเก่าที่อาจค้างอยู่
 
 ## สาเหตุปัญหาที่เคยพบ
 
@@ -72,6 +79,8 @@ cd D:\Agents\Claude\hotkey-language-switcher
 - เพิ่ม stuck-key timeout เพื่อ recover ถ้า Windows ไม่ส่ง keyup
 - normalize CapsLock ให้ OFF ตอนเริ่มโปรแกรมและหลังสลับภาษา
 - installer/reset cleanup duplicate startup paths
+- ย้ายจาก Startup folder ไป Task Scheduler: Startup folder ถูก Windows หน่วงและต้องต่อคิวหลังโปรแกรมใน Run key ทำให้บางครั้งใช้ได้ช้ากว่า login หลายนาที
+- instance ที่สองที่เปิดแบบไม่ elevate จะออกทันที แทนที่จะรันซ้อนแล้วสลับภาษาสองรอบ
 
 ## ระบบทดสอบ
 
@@ -95,7 +104,7 @@ test gate ตรวจสิ่งเหล่านี้:
 - ตรวจ DWORD tick wrap-around
 - sync binary จาก `build/` ไป `installer/`
 - ตรวจ SHA256 ของ binary ทั้งสองตำแหน่งว่าตรงกัน
-- ตรวจว่า installer/reset มี logic cleanup startup duplicate
+- ตรวจว่า setup สร้าง task แบบ at-logon, highest privileges, ไม่มี time limit, ไม่หยุดตอนใช้แบต และ cleanup startup แบบเก่า
 - ตรวจ whitespace ด้วย `git diff --check`
 
 รายละเอียด coverage และ release checklist อยู่ใน [TESTING.md](TESTING.md)
@@ -116,10 +125,9 @@ test gate ตรวจสิ่งเหล่านี้:
 │   └── HotkeyLanguageSwitcher.exe
 └── installer/
     ├── HotkeyLanguageSwitcher.exe
-    ├── install.bat
-    ├── reset.bat
-    ├── config.bat
-    └── startup.bat
+    ├── install.bat           # ติดตั้ง/อัปเกรด (เรียก setup.ps1)
+    ├── reset.bat             # ถอนการติดตั้ง (setup.ps1 -Uninstall)
+    └── setup.ps1             # สร้าง scheduled task + cleanup startup เก่า
 ```
 
 ## Build จาก source
@@ -169,7 +177,8 @@ Physical CapsLock
 - โปรแกรมไม่บันทึก keystrokes
 - ใช้ Windows API มาตรฐานเท่านั้น
 - ทำงานใน user space ไม่ใช่ kernel driver
-- ถ้าต้องใช้กับแอปที่รันแบบ Administrator โปรแกรมนี้ต้องรันแบบ Administrator ด้วย
+- ใช้ได้กับแอปที่รันแบบ Administrator เพราะ scheduled task รันด้วย highest privileges
+- ยังใช้ไม่ได้ที่หน้า login / lock screen เพราะเป็น user-space hook
 - Global keyboard hooks ไม่ควรทดสอบด้วยการยิง key จริงบนเครื่องใช้งานหลัก จึงมี unit test core logic และ runtime diagnostics แยกกัน
 
 ## Troubleshooting
@@ -179,8 +188,9 @@ Physical CapsLock
 - ตรวจว่ามี input language มากกว่า 1 ภาษาใน Windows Settings
 - รัน `scripts\diagnose.ps1`
 - เปิด Task Manager แล้วเช็คว่ามี `HotkeyLanguageSwitcher.exe` แค่ตัวเดียว
+- เปิด Task Scheduler (`taskschd.msc`) แล้วดูว่า task `HotkeyLanguageSwitcher` อยู่ในสถานะ Running
 
-ถ้า diagnostics แจ้งว่า startup binary hash ไม่ตรง:
+ถ้า diagnostics แจ้งว่า binary hash ไม่ตรงหรือ task หาย:
 
 ```powershell
 cd D:\Agents\Claude\hotkey-language-switcher
